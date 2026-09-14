@@ -146,3 +146,60 @@
   rural areas with scattered pings — not corrected for here.
 - ~96k of the original ~98.6k delivered orders have distance data (some lost to 
   missing zips or the DISTINCT ON simplification) — a small, acceptable coverage gap.
+
+  ## Module 4 — Territory Alignment / Seller-Region Mapping
+
+**Date:** 2026-09-14
+
+**What we built:**
+- `scripts/02_territory_alignment.py`: for each order, finds the distance to the 
+  nearest seller who sells the same product category (using vectorized Haversine 
+  distance via NumPy broadcasting across ~71 categories), and compares it to the 
+  actual seller distance from Module 3.
+- State-level breakdown of the gap between actual and theoretically-nearest seller 
+  distance, saved to `data/processed/territory_gap_by_state.csv` and 
+  `orders_with_territory_gap.csv`.
+
+**Key findings:**
+- On average, orders travel 600.7 km to their actual seller, vs. 105.6 km to the 
+  nearest qualifying (same-category) seller — an average unnecessary distance of 
+  ~495.7 km per order (median gap: 383.4 km).
+- The gap is heavily concentrated in Brazil's Northeast: Paraíba (PB), Rio Grande do 
+  Norte (RN), Pernambuco (PE), and Ceará (CE) each show gaps of 1,600+ km — meaning 
+  customers there are served by sellers ~2,000km away on average when equivalent 
+  sellers exist only 300-600km away.
+- This finding directly explains Module 2's regional lateness pattern (same states 
+  had the highest late %) and Module 3's distance-delay correlation — it's not just 
+  that these regions are far from everything, it's that Olist's current seller 
+  assignment isn't using the closer options that already exist in its own network.
+- SP (the seller hub) has both the lowest actual distance and the smallest gap 
+  (236.1 km) — most SP customers are already served efficiently by nearby SP sellers, 
+  so there's little realignment opportunity there. This is a clean core-vs-periphery 
+  logistics pattern.
+
+**Key decisions & why:**
+- Restricted "nearest seller" search to sellers who actually sell the same product 
+  category (via a seller-category catalog built from historical order_items) rather 
+  than nearest seller overall — a customer can't be usefully served by a nearby 
+  seller who doesn't carry the product they want.
+- Used NumPy broadcasting (reshaping customer/seller coordinate arrays into a 
+  row/column pair to form a full distance matrix, then taking the row-wise minimum) 
+  instead of a nested loop over orders and sellers, for performance across ~71 
+  categories and ~95k orders.
+- Framed the distance-gap finding as a theoretical ceiling, not a guaranteed 
+  achievable saving — it assumes same-category sellers are interchangeable in price/
+  inventory/quality, and ignores that customers actively choose which specific 
+  seller/listing to buy from. The honest claim is "maximum possible geography-driven 
+  efficiency gain," not "guaranteed savings if implemented."
+
+**Known limitations carried forward:**
+- Some orders (1,345 out of 95,998) couldn't be matched to a category and were 
+  excluded from this analysis.
+- A small number of orders show a slightly negative gap (min: -73.5 km) due to 
+  zip-prefix-centroid approximation noise from Module 3's geolocation averaging — 
+  not a real "nearest seller was farther than actual" case, just floating-point/
+  approximation noise.
+- This analysis assumes every same-category seller has equivalent inventory 
+  availability and pricing — a real territory-redesign recommendation would need to 
+  factor in seller capacity, price competitiveness, and customer choice, not just 
+  geographic distance.
