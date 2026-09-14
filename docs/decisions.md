@@ -203,3 +203,58 @@
   availability and pricing — a real territory-redesign recommendation would need to 
   factor in seller capacity, price competitiveness, and customer choice, not just 
   geographic distance.
+
+  ## Module 5 — Fulfillment Allocation Optimization
+
+**Date:** 2026-09-14
+
+**What we built:**
+- `scripts/03_allocation_optimization.py`: a Linear Programming model (via PuLP, 
+  solved with the CBC solver) that determines the optimal allocation of order volume 
+  from seller-states to customer-states, minimizing total distance subject to demand 
+  (must serve 100% of each state's historical order volume) and capacity constraints 
+  (each seller-state limited to 115% of its historical order volume).
+- Compared the LP's optimal total distance against the actual historical total.
+
+**Key findings:**
+- The optimal allocation reduces total system-wide distance by 34.0% (from 57.67M to 
+  38.08M order-km) versus what actually happened historically — achievable purely 
+  through better routing/allocation, without adding any new sellers or capacity.
+- High-demand, high-supply states (SP, RJ, PR, SC) largely serve themselves 
+  optimally, confirming they're already reasonably well-aligned.
+- Overflow routing appears exactly where expected: when a state's own capacity is 
+  exhausted (e.g., RJ), the model routes remaining demand to the next-best 
+  alternative (SP) rather than exceeding capacity.
+- Northeast states (PE, CE) remain far from any qualifying seller-state even under 
+  the optimal solution (routed via MG at 1,700-1,900 km) — this is an important, 
+  honest finding: optimization improves routing efficiency but cannot manufacture 
+  seller capacity that doesn't exist near a region. A true fix for the Northeast gap 
+  would require actual investment (e.g., a regional hub or seller recruitment), not 
+  just smarter allocation of the existing network.
+
+**Key decisions & why:**
+- Modeled at the state-to-state level (not individual order/seller level) to keep 
+  the LP tractable and to mirror how real network-design decisions are actually made 
+  at the strategic/BA level, rather than a live per-order routing engine.
+- Used historical order volume as a proxy for both demand and capacity, since actual 
+  seller capacity data isn't available in this dataset. Applied a 15% buffer above 
+  historical volume as the assumed capacity ceiling — an explicit, stated assumption 
+  (not a real operational figure), needed because setting capacity exactly equal to 
+  historical volume would leave the model zero flexibility to reallocate anything.
+- Used average historical distance per state-pair as the LP's cost input; state 
+  pairs with no historical volume were assigned a conservative fallback (the maximum 
+  observed distance) rather than treating unknown routes as free/zero-cost.
+- Treated allocation quantities as continuous (not integer) variables — reasonable 
+  at this aggregate scale, since real-world volumes are in the thousands and 
+  fractional results don't meaningfully distort interpretation.
+
+**Known limitations carried forward:**
+- The 15% capacity buffer is an assumption, not real data — a production version of 
+  this model would need actual seller/warehouse capacity figures.
+- The model assumes any seller-state can serve any customer-state's demand for any 
+  product (aggregated away the category-level restriction from Module 4) — a more 
+  advanced version would run this per-category or add category-compatibility 
+  constraints.
+- This is a strategic/network-level model, not an operational routing engine — it 
+  tells you how volume *should* flow in aggregate, not which literal seller fulfills 
+  which literal order.
