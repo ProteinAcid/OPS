@@ -1,0 +1,5 @@
+data/raw/*.csv
+data/processed/*.csv
+.env
+__pycache__/
+.ipynb_checkpoints/
