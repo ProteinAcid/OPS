@@ -95,3 +95,54 @@
   invisible in seller-level and category-level breakdowns — acceptable for now since 
   most orders are single-seller, but worth remembering if seller-level numbers ever 
   look inconsistent with item-level Module 1 numbers.
+
+  ## Module 3 — Last-Mile Logistics Analysis
+
+**Date:** 2026-09-14
+
+**What we built:**
+- Python environment (`venv`) with `pandas`, `sqlalchemy`, `psycopg2-binary`, 
+  `python-dotenv` for DB credentials.
+- `scripts/db_connection.py`: reusable Postgres connection using `.env` for secrets 
+  (never committed to Git).
+- `scripts/01_load_geolocation.py`: cleans `geolocation` (deduplicates ~1M lat/long 
+  pings down to 19,015 unique zip-prefix centroids via averaging), joins seller and 
+  customer coordinates onto each order, computes real Haversine distance (in km) 
+  between seller and customer for ~96k orders, buckets distance into ranges, and 
+  saves the result to `data/processed/orders_with_distance.csv`.
+
+**Key findings:**
+- Distance and last-mile delivery time have a moderate positive correlation (0.42) — 
+  distance is a real, quantifiable driver of delivery speed, not just a hypothesis.
+- Clear, near-linear scaling by distance bucket: avg last-mile time goes from 2.90 
+  days (0-100km) to 15.31 days (1000km+) — roughly a 5x increase. Late % roughly 
+  doubles over the same range (6.38% -> 11.84%).
+- This quantifies and confirms Module 2's regional finding (states far from the SP 
+  seller hub had higher late %) — distance is a concrete, measurable mechanism behind 
+  that pattern, not just a correlation with state labels.
+
+**Key decisions & why:**
+- Deduplicated geolocation to one lat/long per zip prefix by averaging all pings in 
+  that prefix, since Brazilian CEP prefixes only identify a small area, not an exact 
+  address — an average is the best available regional estimate given the data's 
+  actual precision limit.
+- Used `python-dotenv` + a gitignored `.env` file for DB credentials instead of 
+  hardcoding them, following standard secret-management practice.
+- Used `DISTINCT ON (order_id)` in the Postgres query (simpler than `orders_summary`'s 
+  full multi-seller aggregation) since this analysis only needs one seller/customer 
+  zip pair per order — accepted a minor inconsistency (uses first item's seller, not 
+  the "primary by value" seller) as an acceptable simplification for this module.
+- Used a left join when attaching lat/long, and explicitly counted + dropped rows 
+  with missing coordinates (264 customer, 215 seller, out of 96,476) rather than 
+  silently losing them via an inner join.
+- Saved the enriched order-distance dataset to `data/processed/` as a CSV so later 
+  modules (territory alignment, ML) can reuse it without recomputing distances.
+
+**Known limitations carried forward:**
+- Zip-prefix-level distance is an approximation, not exact address-to-address 
+  distance — acceptable for regional-level analysis, not precise enough for 
+  individual delivery routing.
+- Averaging lat/long per prefix could be distorted for prefixes covering wide/sparse 
+  rural areas with scattered pings — not corrected for here.
+- ~96k of the original ~98.6k delivered orders have distance data (some lost to 
+  missing zips or the DISTINCT ON simplification) — a small, acceptable coverage gap.
