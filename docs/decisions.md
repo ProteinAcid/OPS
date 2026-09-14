@@ -258,3 +258,55 @@
 - This is a strategic/network-level model, not an operational routing engine — it 
   tells you how volume *should* flow in aggregate, not which literal seller fulfills 
   which literal order.
+
+  ## Module 6 — Delay-Risk Prediction (Machine Learning)
+
+**Date:** 2026-09-14
+
+**What we built:**
+- `scripts/04_delay_prediction.py`: assembled a feature table (distance, price, 
+  freight value, category, order month/day-of-week, peak-season flag) from across 
+  all prior modules, one-hot encoded categorical features, and trained a Random 
+  Forest classifier (scikit-learn) to predict whether a new order will be delivered 
+  late.
+
+**Key findings:**
+- Model performance: 58% recall on late orders (catches over half of real late 
+  orders before they happen), 15% precision (roughly 5 false alarms per real catch), 
+  ROC-AUC of 0.71 (meaningfully better than random, but moderate overall).
+- Feature importance directly confirms and unifies earlier modules' findings: 
+  `order_month` (34.3%) and `is_peak_season` (8.4%) confirm Module 2's seasonal 
+  spike finding; `distance_km` (19.7%) confirms Module 3's distance-delay 
+  relationship. Individual product categories barely matter (<1% each) — timing and 
+  geography dominate over what was actually ordered.
+- Honest interpretation: this model provides real, moderate predictive lift suitable 
+  for prioritizing manual review or soft internal risk flags — it is NOT accurate 
+  enough (15% precision) to justify automated high-cost interventions (e.g., 
+  automatic expedited shipping) on every flagged order, since 5 of 6 flags would be 
+  false alarms.
+
+**Key decisions & why:**
+- Used `class_weight="balanced"` specifically because of severe class imbalance 
+  (91.9% not-late vs 8.1% late) — without it, the model would have little incentive 
+  to learn late-order patterns at all, since ignoring them still yields ~92% naive 
+  accuracy.
+- Evaluated using precision/recall/F1/ROC-AUC instead of relying on accuracy, since 
+  accuracy is misleading and uninformative under this level of class imbalance.
+- Capped tree depth (`max_depth=10`) to reduce overfitting risk on training data.
+- Filled missing `category` values (1,371 orders) as an explicit "unknown" category 
+  rather than dropping those rows, treating "no category on record" as potentially 
+  meaningful information rather than discarding real orders.
+- Excluded raw geographic columns (state, lat/long) as separate features since 
+  `distance_km` already captures that signal more precisely and directly — avoided 
+  redundant/overlapping inputs.
+
+**Known limitations carried forward:**
+- Precision (15%) is low — this model is appropriate for prioritization/triage, not 
+  for automated high-stakes decisions.
+- Feature set is limited to what this dataset provides — real-world improvements 
+  would likely come from adding features we don't have access to here: actual 
+  carrier/shipping-partner identity, warehouse staffing levels, weather, or 
+  real-time traffic/logistics data.
+- Random Forest hyperparameters (200 trees, depth 10) were reasonable defaults, not 
+  exhaustively tuned — a further iteration could try hyperparameter tuning or 
+  gradient-boosted alternatives (e.g., XGBoost) for potential improvement.
