@@ -41,3 +41,57 @@
   it does NOT yet have lat/long attached. Module 3 (last-mile) will need to join in 
   `geolocation` (aggregated per zip prefix, since raw geolocation has duplicates) to 
   compute actual distances.
+
+  ## Module 2 — Delivery Performance & SLA Analysis
+
+**Date:** 2026-09-14
+
+**What we built:**
+- `orders_summary` view: collapses `order_journey` from order-item grain to one row 
+  per order, aggregating price/freight, counting distinct sellers/products, and 
+  picking a "primary" seller/category (by highest-value item) for orders with 
+  multiple items.
+- Five analysis queries: overall on-time %, delay by customer state, worst-performing 
+  sellers (with minimum order threshold), processing-vs-transit root cause split, and 
+  monthly delay trend.
+
+**Key findings:**
+- 8.11% of delivered orders are late; 2,190 orders (out of 98,666) were never 
+  delivered at all — tracked as a separate "undelivered" metric rather than folded 
+  into "late," since it's a different failure mode.
+- Delay is heavily transit-driven system-wide: average processing time (approval → 
+  carrier handoff) is 2.80 days vs. average transit time (carrier → customer) of 
+  9.33 days — over 3x longer. This means the dominant lever for improving delivery 
+  speed is logistics/distance (Modules 3-4), not seller packing speed.
+- Regional lateness is concentrated in states farther from the São Paulo seller hub 
+  (AL: 23.93% late, MA: 19.67%, PI: 15.97%), consistent with the transit-time finding.
+- However, the worst individual sellers by late % are mostly SP-based despite SP 
+  having strong regional averages — meaning a subset of sellers have a genuine 
+  processing problem distinct from the system-wide transit problem. Both issues 
+  exist simultaneously and need different fixes.
+- Clear seasonal spikes: Nov 2017 (14.31% late, Black Friday demand surge) and March 
+  2018 (21.36% late, coincides with Brazil's 2018 truck drivers' strike — a known 
+  external shock, not an internally-fixable ops failure). Flagging this distinction 
+  matters: not every spike reflects an operational weakness.
+
+**Key decisions & why:**
+- Used a VIEW (not a table) for `orders_summary` since it's a lightweight 
+  re-aggregation of `order_journey` with no need for separate physical storage.
+- For multi-item/multi-seller orders, aggregated with `SUM` for price/freight, 
+  `COUNT(DISTINCT ...)` for seller/product diversity, and picked a "primary" 
+  seller/category by highest-value item using `ARRAY_AGG(...ORDER BY price DESC)[1]`.
+- Applied a minimum order threshold (`HAVING COUNT(*) >= 20`) when ranking sellers by 
+  late %, to avoid small-sample sellers (e.g., 1 order, 100% late) distorting the 
+  ranking.
+- Excluded undelivered orders from all rate-based denominators (late %, avg days) 
+  rather than treating them as "late," since "never delivered" is a distinct failure 
+  mode from "delivered slowly."
+
+**Known limitations carried forward:**
+- We still don't have actual distance between seller and customer — the state-level 
+  regional pattern is suggestive but not proof that distance drives transit time. 
+  Module 3 will compute real distances using `geolocation` to confirm/quantify this.
+- "Primary seller/category" logic means multi-seller orders' minority items are 
+  invisible in seller-level and category-level breakdowns — acceptable for now since 
+  most orders are single-seller, but worth remembering if seller-level numbers ever 
+  look inconsistent with item-level Module 1 numbers.
